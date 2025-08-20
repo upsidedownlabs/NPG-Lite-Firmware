@@ -38,7 +38,7 @@
 #include <Arduino.h>
 #include "esp_dsp.h"
 
-#define DEBUG  // Uncomment this line to enable debugging
+// #define DEBUG  // Uncomment this line to enable debugging
 
 // ----------------- USER CONFIGURATION -----------------
 #define SAMPLE_RATE       512          // samples per second
@@ -82,25 +82,28 @@ unsigned long triple_blink_ms   = 600;
 int         blinkCount         = 0;             // how many valid blinks so far (0–2)
 float currentEOGEnvelope = 0;
 float BlinkLowerThreshold = 50.0;
-float BlinkUpperThreshold = 70.0;
+float BlinkUpperThreshold = 80.0;
 
 // Jaw Clench Detection Configuration
 float currentEMGEnvelope = 0;
 // --- Jaw clench debounce config ---
 const unsigned long  JAW_DEBOUNCE_MS   = 500;   // ignore new clench triggers for this many ms after a valid clench
-const float          JAW_ON_THRESHOLD  = 120.0; // same as your current threshold
-const float          JAW_OFF_THRESHOLD = 100.0; // hysteresis: must fall below this to re-arm
+const float          JAW_ON_THRESHOLD  = 60.0; // same as your current threshold
+const float          JAW_OFF_THRESHOLD = 50.0; // hysteresis: must fall below this to re-arm
 const unsigned long JAW_BLOCK_DURATION_MS = 500;  // Block other detections for 500ms after jaw clench
 unsigned long lastJawDetectionTime = 0;            // Time when jaw clench was last detected
 
 unsigned long lastJawClenchTime = 0; // last time a clench was accepted
 bool jawState = false;              // true = currently considered in a clench
 
+// Separate Envelope Processing Variables for each signal
+float eogEnvelopeBuffer[ENVELOPE_WINDOW_SIZE] = {0};
+int eogEnvelopeIndex = 0;
+float eogEnvelopeSum = 0;
 
-// Envelope Processing Variables
-float envelopeBuffer[ENVELOPE_WINDOW_SIZE] = {0};
-int envelopeIndex = 0;
-float envelopeSum = 0;
+float emgEnvelopeBuffer[ENVELOPE_WINDOW_SIZE] = {0};
+int emgEnvelopeIndex = 0;
+float emgEnvelopeSum = 0;
 
 // EEG bands (Hz)
 #define DELTA_LOW    0.5f
@@ -209,18 +212,30 @@ float EMGFilter(float input)
   return output;
 }
 
-// updateEnvelope(sample): sliding-window moving-average of absolute(sample)
-float updateEnvelope(float sample) 
+float updateEOGEnvelope(float sample) 
 {
   float absSample = fabs(sample); 
 
   // Update circular buffer and running sum
-  envelopeSum -= envelopeBuffer[envelopeIndex];
-  envelopeSum += absSample;
-  envelopeBuffer[envelopeIndex] = absSample;
-  envelopeIndex = (envelopeIndex + 1) % ENVELOPE_WINDOW_SIZE;
+  eogEnvelopeSum -= eogEnvelopeBuffer[eogEnvelopeIndex];
+  eogEnvelopeSum += absSample;
+  eogEnvelopeBuffer[eogEnvelopeIndex] = absSample;
+  eogEnvelopeIndex = (eogEnvelopeIndex + 1) % ENVELOPE_WINDOW_SIZE;
 
-  return envelopeSum / ENVELOPE_WINDOW_SIZE;  // Return moving average
+  return eogEnvelopeSum / ENVELOPE_WINDOW_SIZE;  // Return moving average
+}
+
+float updateEMGEnvelope(float sample) 
+{
+  float absSample = fabs(sample); 
+
+  // Update circular buffer and running sum
+  emgEnvelopeSum -= emgEnvelopeBuffer[emgEnvelopeIndex];
+  emgEnvelopeSum += absSample;
+  emgEnvelopeBuffer[emgEnvelopeIndex] = absSample;
+  emgEnvelopeIndex = (emgEnvelopeIndex + 1) % ENVELOPE_WINDOW_SIZE;
+
+  return emgEnvelopeSum / ENVELOPE_WINDOW_SIZE;  // Return moving average
 }
 
 // ----------------- BANDPOWER & SMOOTHING -----------------
@@ -341,8 +356,8 @@ void loop() {
     float EEG = EEGFilter(Notch(raw));
     float EOG = EOGFilter(Notch(raw));
     float EMG = EMGFilter(Notch(raw));
-    currentEOGEnvelope = updateEnvelope(EOG);
-    currentEMGEnvelope = updateEnvelope(EMG);
+    currentEOGEnvelope = updateEOGEnvelope(EOG);
+    currentEMGEnvelope = updateEMGEnvelope(EMG);
     inputBuffer[idx++] = EEG;
 
     if(segmentIndex < SAMPLES_PER_SEGMENT) {
