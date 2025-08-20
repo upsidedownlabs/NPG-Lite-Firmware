@@ -353,9 +353,10 @@ void loop() {
     timingActive = true;
 
     int raw = analogRead(INPUT_PIN);
-    float EEG = EEGFilter(Notch(raw));
-    float EOG = EOGFilter(Notch(raw));
-    float EMG = EMGFilter(Notch(raw));
+    float filtered = Notch(raw);
+    float EEG = EEGFilter(filtered);
+    float EOG = EOGFilter(filtered);
+    float EMG = EMGFilter(filtered);
     currentEOGEnvelope = updateEOGEnvelope(EOG);
     currentEMGEnvelope = updateEMGEnvelope(EMG);
     inputBuffer[idx++] = EEG;
