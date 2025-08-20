@@ -38,7 +38,7 @@
 #include <Arduino.h>
 #include "esp_dsp.h"
 
-// #define DEBUG  // Uncomment this line to enable debugging
+#define DEBUG  // Uncomment this line to enable debugging
 
 // ----------------- USER CONFIGURATION -----------------
 #define SAMPLE_RATE       512          // samples per second
@@ -53,6 +53,32 @@
 
 #define SEGMENT_SEC 1
 #define SAMPLES_PER_SEGMENT (SAMPLE_RATE * SEGMENT_SEC)
+
+// Modify Thresholds while debugging
+const float BETA_THRESHOLD  = 10.0; // adjust based on calibration: typically 50% of max beta power during focused state
+const float BlinkLowerThreshold = 50.0;
+const float BlinkUpperThreshold = 80.0;
+const float JAW_ON_THRESHOLD  = 60.0; // same as your current threshold
+const float JAW_OFF_THRESHOLD = 50.0; // hysteresis: must fall below this to re-arm
+
+// Add ISR variables (make them volatile)
+volatile bool newSampleReady = false;
+volatile float latestEEG = 0;
+volatile float latestEOG = 0;
+volatile float latestEMG = 0;
+volatile int sampleIndex = 0;
+
+// Circular buffer for ISR->main communication
+#define BUFFER_SIZE 64
+volatile float eegCircBuffer[BUFFER_SIZE];
+volatile float eogCircBuffer[BUFFER_SIZE];
+volatile float emgCircBuffer[BUFFER_SIZE];
+volatile int writeIndex = 0;
+volatile int readIndex = 0;
+volatile int samplesAvailable = 0;
+
+// Timer handle
+hw_timer_t *sampleTimer = NULL;
 
 float eegBuffer[SAMPLES_PER_SEGMENT] = {0};
 float eogBuffer[SAMPLES_PER_SEGMENT] = {0};
@@ -69,7 +95,6 @@ bool segmentStatsReady = false;
 
 // Focus Detection Configuration
 const unsigned long  FOCUS_DEBOUNCE_MS   = 2000; // ignore focus triggers for this many ms after a valid focus detection
-const float          BETA_THRESHOLD  = 10.0; // adjust based on calibration: typically 50% of max beta power during focused state
 unsigned long        lastFocusTime = 0; // when focus was last accepted (debounce)
 
 // Blink Detection Configuration
@@ -81,15 +106,11 @@ unsigned long secondBlinkTime   = 0;
 unsigned long triple_blink_ms   = 600; 
 int         blinkCount         = 0;             // how many valid blinks so far (0–2)
 float currentEOGEnvelope = 0;
-float BlinkLowerThreshold = 50.0;
-float BlinkUpperThreshold = 80.0;
 
 // Jaw Clench Detection Configuration
 float currentEMGEnvelope = 0;
 // --- Jaw clench debounce config ---
 const unsigned long  JAW_DEBOUNCE_MS   = 500;   // ignore new clench triggers for this many ms after a valid clench
-const float          JAW_ON_THRESHOLD  = 60.0; // same as your current threshold
-const float          JAW_OFF_THRESHOLD = 50.0; // hysteresis: must fall below this to re-arm
 const unsigned long JAW_BLOCK_DURATION_MS = 500;  // Block other detections for 500ms after jaw clench
 unsigned long lastJawDetectionTime = 0;            // Time when jaw clench was last detected
 
@@ -316,10 +337,31 @@ void processFFT() {
 
 }
 
-// ----------------- SETUP & LOOP -----------------
+// ISR function - keep it minimal and fast
+void IRAM_ATTR onSampleTimer() {
+    // Only do essential work in ISR
+    int raw = analogRead(INPUT_PIN);
+    float filtered = Notch(raw);
+    float eeg = EEGFilter(filtered);
+    float eog = EOGFilter(filtered);
+    float emg = EMGFilter(filtered);
+    
+    // Store in circular buffer
+    eegCircBuffer[writeIndex] = eeg;
+    eogCircBuffer[writeIndex] = eog;
+    emgCircBuffer[writeIndex] = emg;
+    
+    writeIndex = (writeIndex + 1) % BUFFER_SIZE;
+    
+    // Update sample counter (atomic for single int)
+    samplesAvailable++;
+    if (samplesAvailable > BUFFER_SIZE) {
+        samplesAvailable = BUFFER_SIZE; // Prevent overflow
+    }
+}
+
 void setup() {
   Serial.begin(BAUD_RATE);
-
   pinMode(INPUT_PIN, INPUT);
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);
@@ -328,183 +370,183 @@ void setup() {
   initFFT();
 
   lastSegmentTimeMs = millis();  // Initialize the timer
+
+  // Setup hardware timer for 512 Hz using new ESP32 core 3.x API
+  sampleTimer = timerBegin(1000000); // 1MHz timer frequency
+  timerAttachInterrupt(sampleTimer, &onSampleTimer);
+  timerAlarm(sampleTimer, 1953, true, 0); // 1,000,000 / 512 ≈ 1953 microseconds, auto-reload
+  
+  Serial.println("Timer-based sampling started at 512 Hz");
 }
 
 void loop() {
-  digitalWrite(LED_PIN, LOW);
-
-  static uint16_t idx = 0;
-  static unsigned long lastMicros = micros();
-  unsigned long now = micros(), dt = now - lastMicros;
-  lastMicros = now;
-
-  // Declare timing variables
-  static unsigned long timeTaken = 0;
-  static unsigned long startTime = 0;
-  static bool timingActive = false;
-
-  static long timer = 0;
-  timer -= dt;
-  if(timer <= 0){
-    timer += 1000000L / SAMPLE_RATE;
-
-    // Start timing here - capture time before data acquisition
-    startTime = micros();
-    timingActive = true;
-
-    int raw = analogRead(INPUT_PIN);
-    float filtered = Notch(raw);
-    float EEG = EEGFilter(filtered);
-    float EOG = EOGFilter(filtered);
-    float EMG = EMGFilter(filtered);
-    currentEOGEnvelope = updateEOGEnvelope(EOG);
-    currentEMGEnvelope = updateEMGEnvelope(EMG);
-    inputBuffer[idx++] = EEG;
-
-    if(segmentIndex < SAMPLES_PER_SEGMENT) {
-    eegBuffer[segmentIndex] = BetaPower;
-    eogBuffer[segmentIndex] = currentEOGEnvelope;
-    emgBuffer[segmentIndex] = currentEMGEnvelope;
-    segmentIndex++;
-    }
-
-    // Calculate elapsed time after all processing is done
-    timeTaken = micros() - startTime;
-  }
-
-  unsigned long nowMs = millis();
-
-  if ((nowMs - lastSegmentTimeMs) >= (1000UL * SEGMENT_SEC)) {
-    // Only process if we have data
-    if(segmentIndex > 0) {
-        // Compute min/max for last segment
-        eegMin = eegBuffer[0];  
-        eegMax = eegBuffer[0];    
-        eogMin = eogBuffer[0]; 
-        eogMax = eogBuffer[0];  
-        emgMin = emgBuffer[0];  
-        emgMax = emgBuffer[0];  
-        float eegSum = 0, eogSum = 0, emgSum = 0;
-        for (uint16_t i = 0; i < segmentIndex; i++) {
-            float eegVal = eegBuffer[i];
-            float eogVal = eogBuffer[i];
-            float emgVal = emgBuffer[i];
-
-            if (eegVal < eegMin) eegMin = eegVal;
-            if (eegVal > eegMax) eegMax = eegVal;
-            eegSum += eegVal;
-
-            if (eogVal < eogMin) eogMin = eogVal;
-            if (eogVal > eogMax) eogMax = eogVal;
-            eogSum += eogVal;
-
-            if (emgVal < emgMin) emgMin = emgVal;
-            if (emgVal > emgMax) emgMax = emgVal;
-            emgSum += emgVal;
+    static uint16_t idx = 0;
+    digitalWrite(LED_PIN, LOW);  // Default LED state
+    
+    // Process all available samples from ISR circular buffer
+    while (samplesAvailable > 0) {
+        // Atomically read one sample from circular buffer
+        portDISABLE_INTERRUPTS();
+        float eeg = eegCircBuffer[readIndex];
+        float eog = eogCircBuffer[readIndex];
+        float emg = emgCircBuffer[readIndex];
+        readIndex = (readIndex + 1) % BUFFER_SIZE;
+        samplesAvailable--;
+        portENABLE_INTERRUPTS();
+        
+        // Process the sample (envelope calculations)
+        currentEOGEnvelope = updateEOGEnvelope(eog);
+        currentEMGEnvelope = updateEMGEnvelope(emg);
+        
+        // Add EEG to FFT buffer
+        inputBuffer[idx++] = eeg;
+        
+        // Add to segment buffers for statistics
+        if(segmentIndex < SAMPLES_PER_SEGMENT) {
+            eegBuffer[segmentIndex] = BetaPower;  // Use current beta power
+            eogBuffer[segmentIndex] = currentEOGEnvelope;
+            emgBuffer[segmentIndex] = currentEMGEnvelope;
+            segmentIndex++;
         }
-        eegAvg = eegSum / segmentIndex;
-        eogAvg = eogSum / segmentIndex;
-        emgAvg = emgSum / segmentIndex;
-
-        // Print ONLY when stats update
-        #ifdef DEBUG
-        Serial.print("Latency: ");
-        Serial.print(timeTaken);
-        Serial.print(" μs | EEG: ");
-        Serial.print(BetaPower);
-        Serial.print(" (Average: "); Serial.print(eegAvg);
-        Serial.print(", Min: "); Serial.print(eegMin);
-        Serial.print(", Max: "); Serial.print(eegMax); Serial.print(")");
-        Serial.print(" | EOG: (Average: "); Serial.print(eogAvg);
-        Serial.print(", Min: "); Serial.print(eogMin);
-        Serial.print(", Max: "); Serial.print(eogMax); Serial.print(")");
-        Serial.print(" | EMG: (Average: "); Serial.print(emgAvg);
-        Serial.print(", Min: "); Serial.print(emgMin);
-        Serial.print(", Max: "); Serial.print(emgMax); Serial.print(")");
-        Serial.println();
-        #endif
-        segmentStatsReady = true;
+        
+        // Process FFT when buffer is full
+        if(idx >= FFT_SIZE) {
+            processFFT();            
+            idx = 0;
+        }
     }
-    lastSegmentTimeMs = nowMs;
-    segmentIndex = 0;
-  }
-
-  // Check if we're in the blocking period after jaw clench
-  bool jawBlockActive = (nowMs - lastJawDetectionTime) < JAW_BLOCK_DURATION_MS;
-
-  if(!jawBlockActive && BetaPower > BETA_THRESHOLD && (nowMs - lastFocusTime) >= FOCUS_DEBOUNCE_MS)
-  {
-    lastFocusTime = nowMs;
-    Serial.println("Focussed");
-    digitalWrite(LED_PIN, HIGH);
-  }
-
-  // Debounced jaw-clench detection
-  if (!jawState) {
-    // not currently clenching — look for rising edge + debounce
-    if (currentEMGEnvelope > JAW_ON_THRESHOLD && (nowMs - lastJawClenchTime) >= JAW_DEBOUNCE_MS) {
-      jawState = true;
-      lastJawClenchTime = nowMs;
-      lastJawDetectionTime = nowMs;  // Start blocking period
-      Serial.println("Jaw Clench");
+    
+    // Get current time for all detection logic
+    unsigned long nowMs = millis();
+    
+    // ===== SEGMENT STATISTICS PROCESSING =====
+    if ((nowMs - lastSegmentTimeMs) >= (1000UL * SEGMENT_SEC)) {
+        if(segmentIndex > 0) {
+            // Compute min/max/avg for the completed segment
+            eegMin = eegBuffer[0];  
+            eegMax = eegBuffer[0];    
+            eogMin = eogBuffer[0]; 
+            eogMax = eogBuffer[0];  
+            emgMin = emgBuffer[0];  
+            emgMax = emgBuffer[0];  
+            
+            float eegSum = 0, eogSum = 0, emgSum = 0;
+            
+            for (uint16_t i = 0; i < segmentIndex; i++) {
+                float eegVal = eegBuffer[i];
+                float eogVal = eogBuffer[i];
+                float emgVal = emgBuffer[i];
+                
+                // EEG statistics
+                if (eegVal < eegMin) eegMin = eegVal;
+                if (eegVal > eegMax) eegMax = eegVal;
+                eegSum += eegVal;
+                
+                // EOG statistics
+                if (eogVal < eogMin) eogMin = eogVal;
+                if (eogVal > eogMax) eogMax = eogVal;
+                eogSum += eogVal;
+                
+                // EMG statistics
+                if (emgVal < emgMin) emgMin = emgVal;
+                if (emgVal > emgMax) emgMax = emgVal;
+                emgSum += emgVal;
+            }
+            
+            eegAvg = eegSum / segmentIndex;
+            eogAvg = eogSum / segmentIndex;
+            emgAvg = emgSum / segmentIndex;
+            
+            #ifdef DEBUG
+            Serial.print("EEG Beta: "); Serial.print(BetaPower);
+            Serial.print(" (Avg: "); Serial.print(eegAvg);
+            Serial.print(", Min: "); Serial.print(eegMin);
+            Serial.print(", Max: "); Serial.print(eegMax); Serial.print(")");
+            Serial.print(" | EOG: (Avg: "); Serial.print(eogAvg);
+            Serial.print(", Min: "); Serial.print(eogMin);
+            Serial.print(", Max: "); Serial.print(eogMax); Serial.print(")");
+            Serial.print(" | EMG: (Avg: "); Serial.print(emgAvg);
+            Serial.print(", Min: "); Serial.print(emgMin);
+            Serial.print(", Max: "); Serial.print(emgMax); Serial.print(")");
+            Serial.println();
+            #endif
+            
+            segmentStatsReady = true;
+        }
+        
+        lastSegmentTimeMs = nowMs;
+        segmentIndex = 0;
     }
-  } else {
-    // currently in clench state — wait for signal to fall below OFF threshold before re-arming
-    if (currentEMGEnvelope < JAW_OFF_THRESHOLD) {
-      // mark time when cleared so the next rising edge respects debounce
-      lastJawClenchTime = nowMs;
-      jawState = false;
+    
+    // ===== JAW CLENCH BLOCKING CHECK =====
+    bool jawBlockActive = (nowMs - lastJawDetectionTime) < JAW_BLOCK_DURATION_MS;
+    
+    // ===== FOCUS DETECTION =====
+    if(!jawBlockActive && BetaPower > BETA_THRESHOLD && (nowMs - lastFocusTime) >= FOCUS_DEBOUNCE_MS) {
+        lastFocusTime = nowMs;
+        Serial.println("Focussed");
+        digitalWrite(LED_PIN, HIGH);
     }
-  }
-
-  // 1) Did we cross threshold and respect per‑blink debounce?
-  if (!jawBlockActive && currentEOGEnvelope > BlinkLowerThreshold && currentEOGEnvelope < BlinkUpperThreshold && (nowMs - lastBlinkTime) >= BLINK_DEBOUNCE_MS) {
-    lastBlinkTime = nowMs;    // mark this blink
-
-    // 2) Count it
-    if (blinkCount == 0) {
-      // first blink of the pair
-      firstBlinkTime = nowMs;
-      blinkCount = 1;
-      // Serial.println("First blink detected");
+    
+    // ===== JAW CLENCH DETECTION =====
+    if (!jawState) {
+        // Not currently clenching - look for rising edge + debounce
+        if (currentEMGEnvelope > JAW_ON_THRESHOLD && (nowMs - lastJawClenchTime) >= JAW_DEBOUNCE_MS) {
+            jawState = true;
+            lastJawClenchTime = nowMs;
+            lastJawDetectionTime = nowMs;  // Start blocking period
+            Serial.println("Jaw Clench");
+        }
+    } else {
+        // Currently in clench state - wait for signal to fall below OFF threshold
+        if (currentEMGEnvelope < JAW_OFF_THRESHOLD) {
+            lastJawClenchTime = nowMs;
+            jawState = false;
+        }
     }
-    else if (blinkCount == 1 && (nowMs - firstBlinkTime) <= DOUBLE_BLINK_MS) {
-      // double blink detected - send right arrow key
-      secondBlinkTime = nowMs;
-      blinkCount = 2;
-      // Serial.println("Second blink registered, waiting for triple…");
+    
+    // ===== BLINK DETECTION =====
+    if (!jawBlockActive && 
+        currentEOGEnvelope > BlinkLowerThreshold && 
+        currentEOGEnvelope < BlinkUpperThreshold && 
+        (nowMs - lastBlinkTime) >= BLINK_DEBOUNCE_MS) {
+        
+        lastBlinkTime = nowMs;
+        
+        if (blinkCount == 0) {
+            // First blink of sequence
+            firstBlinkTime = nowMs;
+            blinkCount = 1;
+            // Serial.println("First blink detected");
+        }
+        else if (blinkCount == 1 && (nowMs - firstBlinkTime) <= DOUBLE_BLINK_MS) {
+            // Second blink within time window
+            secondBlinkTime = nowMs;
+            blinkCount = 2;
+            // Serial.println("Second blink registered, waiting for triple...");
+        }
+        else if (blinkCount == 2 && (nowMs - secondBlinkTime) <= triple_blink_ms) {
+            // Triple blink detected
+            Serial.println("Triple blink detected!");
+            blinkCount = 0;
+        }
+        else {
+            // Either too late or extra blink - restart sequence
+            firstBlinkTime = nowMs;
+            blinkCount = 1;
+            // Serial.println("Blink sequence restarted");
+        }
     }
-    else if (blinkCount==2 && (nowMs - secondBlinkTime) <= triple_blink_ms)
-    {
-      Serial.println("Triple blink detected!");
-      blinkCount=0;
-    }
-    else {
-      // either too late or extra blink → restart sequence
-      firstBlinkTime = nowMs;
-      blinkCount = 1;
-      // Serial.println("Blink sequence restarted");
-    }
-  }
-
-    // if we were in “2 blinks” but no third arrived in time → treat as a real double
+    
+    // ===== BLINK TIMEOUT HANDLING =====
+    // If we had 2 blinks but no third arrived in time, treat as double blink
     if (blinkCount == 2 && (nowMs - secondBlinkTime) > triple_blink_ms) {
-      Serial.println("Double blink detected");
-      blinkCount = 0;
+        Serial.println("Double blink detected");
+        blinkCount = 0;
     }
-
-  // 3) Timeout: if we never got the second blink in time, reset
-  if (blinkCount == 1 && (nowMs - firstBlinkTime) > DOUBLE_BLINK_MS) {
-    blinkCount = 0;
-  }
-
-  if(idx >= FFT_SIZE){
-    processFFT();
-    // Calculate total time after FFT processing is complete
-    if(timingActive) {
-      timeTaken = micros() - startTime;
-      timingActive = false;
+    
+    // If we never got the second blink in time, reset
+    if (blinkCount == 1 && (nowMs - firstBlinkTime) > DOUBLE_BLINK_MS) {
+        blinkCount = 0;
     }
-    idx = 0;
-  }
 }
