@@ -15,7 +15,7 @@ The output is displayed on the Serial Monitor, showing events such as `Focussed`
 ## How It Works
 
 1. **Signal Acquisition:**
-   - The raw signal is read from the EEG electrode placement where `positive (A0P)` is connected to forhead, `negative (A0N)` is connected behind any ear and `BIAS` is connected behind the other ear.
+   - The raw signal is read from the EEG electrode placement where `positive (A0P)` is connected to forehead, `negative (A0N)` is connected behind any ear and `BIAS` is connected behind the other ear.
 
 2. **Filtering:**
    - A notch filter removes powerline noise.

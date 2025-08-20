@@ -68,8 +68,8 @@ bool segmentStatsReady = false;
 
 
 // Focus Detection Configuration
-const unsigned long  FOCUS_DEBOUNCE_MS   = 2000;   // ignore focus triggers for this many ms after a valid focus detection
-const float          BETA_THRESHOLD  = 10.0; 
+const unsigned long  FOCUS_DEBOUNCE_MS   = 2000; // ignore focus triggers for this many ms after a valid focus detection
+const float          BETA_THRESHOLD  = 10.0; // adjust based on calibration: typically 50% of max beta power during focused state
 unsigned long        lastFocusTime = 0; // when focus was last accepted (debounce)
 
 // Blink Detection Configuration
