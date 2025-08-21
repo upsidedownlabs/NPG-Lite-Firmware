@@ -23,15 +23,17 @@ The output is displayed on the Serial Monitor, showing events such as `Focussed`
 
 3. **Feature Extraction:**
    - **EEG:**
-     - The raw EEG signal is filtered using a 0.5Hz - 45Hz bandpass filter.
+     - The raw EEG signal is filtered using a 45Hz lowpass filter.
      - The filtered signal is then processed using FFT to calculate brain bandpowers.
      - The beta waves (13Hz - 30Hz) bandpower is monitored to detect focus.
    - **EOG:**
-     - The raw EOG signal is filtered using a 5Hz - 45Hz bandpass filter.
+     - The raw EOG signal is filtered using a 5Hz highpass filter to detect significant eye blinks.
      - A running average (envelope algorithm) is applied to the filtered EOG signal for smoothing.
      - The EOG envelope is monitored to detect double/triple eye blinks.
    - **EMG:**
-     - A running average (envelope algorithm) is applied to the filtered EOG and EMG signals for smoothing.
+     - The raw EMG signal is filtered using a 70Hz highpass filter to detect significant muscle activity.
+     - A running average (envelope algorithm) is applied to the filtered EMG signal for smoothing.
+     - The EMG envelope is monitored to detect jaw clench.
 
 4. **Event Detection:**
    - Thresholds are set for each feature to detect specific events:
