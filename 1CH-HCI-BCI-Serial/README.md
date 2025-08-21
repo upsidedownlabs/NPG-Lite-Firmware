@@ -71,7 +71,7 @@ Since biosignals vary from person to person, the program is designed to be custo
 #### **EOG (Blink Detection):**
 - Try blinking and observe the maximum EOG value reached (check the `Max` value for EOG, typically between 30 and 90).
 - Set `BlinkLowerThreshold` to **70% of the max value**.
-- Set `BlinkUpperThreshold` to **80% of the max value**.
+- Set `BlinkUpperThreshold` to **110% of the max value**.
 
 #### **EMG (Jaw Clench Detection):**
 - Clench your jaw and observe the maximum EMG value reached (check the `Max` value for EMG, typically between 100 and 300).
