@@ -458,7 +458,7 @@ void loop() {
             emgAvg = emgSum / segmentIndex;
             
             #ifdef DEBUG
-            Serial.print("EEG Beta: "); Serial.print(BetaPower);
+            Serial.print("Beta Power: "); Serial.print(BetaPower);
             Serial.print(" (Avg: "); Serial.print(eegAvg);
             Serial.print(", Min: "); Serial.print(eegMin);
             Serial.print(", Max: "); Serial.print(eegMax); Serial.print(")");
