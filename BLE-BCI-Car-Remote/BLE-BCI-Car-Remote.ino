@@ -66,7 +66,7 @@ bool oldDeviceConnected = false;
 
 // Variable that will continuously be increased and written to the client
 uint32_t value = 0;
-
+uint32_t betaThreshold = 2;
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
 // UUIDs used in this example:
@@ -316,7 +316,7 @@ void processFFT() {
   Serial.println(((smoothedPowers.beta / T) * 100));  // for debugging purpose only
 
   // If the power exceeds the threshold (set as 2% of the total power), the threshold value can be adjusted based on your beta parameters.
-  if (((smoothedPowers.beta / T) * 100) > 2) {
+  if (((smoothedPowers.beta / T) * 100) > betaThreshold) {
     bci_val = 3;
     Serial.println("send 3");
     pCharacteristic_1->setValue(bci_val);  // for forward moving car
