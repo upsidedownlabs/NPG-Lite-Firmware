@@ -121,7 +121,7 @@ typedef struct
   float delta, theta, alpha, beta, gamma, total;
 } BandpowerResults;
 
-BandpowerResults smoothedPowers = {0,0,0,0,0,0};
+BandpowerResults smoothedPowers = { 0, 0, 0, 0, 0, 0 };
 
 // ----------------- NOTCH FILTER CLASSES -----------------
 // For 50Hz AC noise removal
@@ -237,7 +237,7 @@ EnvelopeFilter Envelopefilter2(16);  // Envelope detector for right EMG
 
 // ----------------- BANDPOWER & SMOOTHING -----------------
 BandpowerResults calculateBandpower(float *ps, float binRes, int halfSize) {
-  BandpowerResults r = {0,0,0,0,0,0};
+  BandpowerResults r = { 0, 0, 0, 0, 0, 0 };
   for (int i = 1; i < halfSize; i++) {
     float freq = i * binRes;
     float p = ps[i];
@@ -415,15 +415,20 @@ void loop() {
     float env2 = Envelopefilter2.getEnvelope(abs(filtemg2));
 
     // If `env1` exceeds 150, trigger left turn command (send value 1).the threshold value can be adjusted based on your emg parameters.
-    if (env1 > 150) {
-      emg1_val1 = 1;
+    if (env1 > 150 && env2 > 150) {
+      bootback_val = 4;
+      Serial.println("sent 4 - BOTH EMG ACTIVE");  // for debugging purpose only
+      pCharacteristic_1->setValue(bootback_val);   // send value 4
+      pCharacteristic_1->notify();
+    } else if (env1 > 150) {
+      emg1_val1 = 2;
       Serial.println("sent 1");                // for debugging purpose only
       pCharacteristic_1->setValue(emg1_val1);  // for left turn car
       pCharacteristic_1->notify();
     }
     // If `env2` exceeds 150, trigger right turn command (send value 2).the threshold value can be adjusted based on your emg parameters.
     else if (env2 > 150) {
-      emg2_val2 = 2;
+      emg2_val2 = 1;
       Serial.println("sent 2");                // for debugging purpose only
       pCharacteristic_1->setValue(emg2_val2);  // for right turn car
       pCharacteristic_1->notify();
@@ -438,10 +443,6 @@ void loop() {
   // read the state of the switch into a local variable:
   int reading = digitalRead(buttonPin);
 
-  // check to see if you just pressed the button
-  // (i.e. the input went from LOW to HIGH), and you've waited long enough
-  // since the last press to ignore any noise:
-
   // If the switch changed, due to noise or pressing:
   if (reading != lastButtonState) {
     // reset the debouncing timer
@@ -449,28 +450,43 @@ void loop() {
   }
 
   if ((millis() - lastDebounceTime) > debounceDelay) {
-    // whatever the reading is at, it's been there for longer than the debounce
-    // delay, so take it as the actual current state:
-
-    // if the button state has changed:
+    // if the reading is different from the current stable state
     if (reading != buttonState) {
       buttonState = reading;
 
-      // only toggle the LED if the new button state is HIGH
-      if (buttonState == HIGH) {
-        ledState = !ledState;
-        bootback_val = (bootback_val == 4) ? 0 : 4;
-        Serial.println(bootback_val);
+      // Button is pressed (LOW because of INPUT_PULLUP)
+      if (buttonState == LOW) {
+        ledState = HIGH;  // Turn LED on when button pressed
+        bootback_val = 4;
+        Serial.println("Button PRESSED - sending continuous 4");
+      }
+      // Button is released
+      else {
+        ledState = LOW;    // Turn LED off when button released
+        bootback_val = 0;  // Optional: send 0 when released
+        Serial.println("Button RELEASED - stopping 4");
+
         if (deviceConnected) {
           pCharacteristic_1->setValue(bootback_val);
           pCharacteristic_1->notify();
         }
       }
     }
+
+    // CONTINUOUSLY send 4 while button is pressed
+    if (buttonState == LOW && deviceConnected) {
+      pCharacteristic_1->setValue(bootback_val);
+      pCharacteristic_1->notify();
+      Serial.println("Sending: 4");
+      delay(100);  // Add small delay to avoid flooding BLE
+    }
   }
 
   // Set the LED State
   digitalWrite(ledPin, ledState);
+
+  // Save the reading for next time
+  lastButtonState = reading;
 
   // The code below keeps the connection status up-to-date:
   // Disconnecting
