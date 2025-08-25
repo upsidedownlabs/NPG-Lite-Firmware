@@ -38,7 +38,7 @@
 #include <Arduino.h>
 #include "esp_dsp.h"
 
-#define DEBUG  // Uncomment this line to enable debugging
+// #define DEBUG  // Uncomment this line to enable debugging
 
 // ----------------- USER CONFIGURATION -----------------
 #define SAMPLE_RATE       512          // samples per second
