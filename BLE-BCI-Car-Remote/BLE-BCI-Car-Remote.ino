@@ -35,7 +35,6 @@
 #include "esp_dsp.h"
 #include <vector>
 // constants won't change. They're used here to set pin numbers:
-const int buttonPin = 9;  // the number of the pushbutton pin
 const int ledPin = 7;     // the number of the LED pin
 
 // Variables will change:
@@ -342,7 +341,6 @@ void setup() {
   pinMode(7, OUTPUT);
 
   initFFT();
-  pinMode(buttonPin, INPUT_PULLUP);
   pinMode(ledPin, OUTPUT);
 
   // set initial LED state
@@ -422,14 +420,14 @@ void loop() {
       pCharacteristic_1->notify();
     } else if (env1 > 150) {
       emg1_val1 = 2;
-      Serial.println("sent 1");                // for debugging purpose only
+      Serial.println("sent 2");                // for debugging purpose only
       pCharacteristic_1->setValue(emg1_val1);  // for left turn car
       pCharacteristic_1->notify();
     }
     // If `env2` exceeds 150, trigger right turn command (send value 2).the threshold value can be adjusted based on your emg parameters.
     else if (env2 > 150) {
       emg2_val2 = 1;
-      Serial.println("sent 2");                // for debugging purpose only
+      Serial.println("sent 1");                // for debugging purpose only
       pCharacteristic_1->setValue(emg2_val2);  // for right turn car
       pCharacteristic_1->notify();
     }
@@ -440,55 +438,6 @@ void loop() {
     idx = 0;
   }
 
-  // read the state of the switch into a local variable:
-  int reading = digitalRead(buttonPin);
-
-  // If the switch changed, due to noise or pressing:
-  if (reading != lastButtonState) {
-    // reset the debouncing timer
-    lastDebounceTime = millis();
-  }
-
-  if ((millis() - lastDebounceTime) > debounceDelay) {
-    // if the reading is different from the current stable state
-    if (reading != buttonState) {
-      buttonState = reading;
-
-      // Button is pressed (LOW because of INPUT_PULLUP)
-      if (buttonState == LOW) {
-        ledState = HIGH;  // Turn LED on when button pressed
-        bootback_val = 4;
-        Serial.println("Button PRESSED - sending continuous 4");
-      }
-      // Button is released
-      else {
-        ledState = LOW;    // Turn LED off when button released
-        bootback_val = 0;  // Optional: send 0 when released
-        Serial.println("Button RELEASED - stopping 4");
-
-        if (deviceConnected) {
-          pCharacteristic_1->setValue(bootback_val);
-          pCharacteristic_1->notify();
-        }
-      }
-    }
-
-    // CONTINUOUSLY send 4 while button is pressed
-    if (buttonState == LOW && deviceConnected) {
-      pCharacteristic_1->setValue(bootback_val);
-      pCharacteristic_1->notify();
-      Serial.println("Sending: 4");
-      delay(100);  // Add small delay to avoid flooding BLE
-    }
-  }
-
-  // Set the LED State
-  digitalWrite(ledPin, ledState);
-
-  // Save the reading for next time
-  lastButtonState = reading;
-
-  // The code below keeps the connection status up-to-date:
   // Disconnecting
   if (!deviceConnected && oldDeviceConnected) {
     delay(500);                   // give the bluetooth stack the chance to get things ready
