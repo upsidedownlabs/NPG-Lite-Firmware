@@ -35,7 +35,6 @@
 #include "esp_dsp.h"
 #include <vector>
 // constants won't change. They're used here to set pin numbers:
-const int buttonPin = 9;  // the number of the pushbutton pin
 const int ledPin = 7;     // the number of the LED pin
 
 // Variables will change:
@@ -66,7 +65,7 @@ bool oldDeviceConnected = false;
 
 // Variable that will continuously be increased and written to the client
 uint32_t value = 0;
-
+uint32_t betaThreshold = 2;
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
 // UUIDs used in this example:
@@ -121,7 +120,7 @@ typedef struct
   float delta, theta, alpha, beta, gamma, total;
 } BandpowerResults;
 
-BandpowerResults smoothedPowers = {0,0,0,0,0,0};
+BandpowerResults smoothedPowers = { 0, 0, 0, 0, 0, 0 };
 
 // ----------------- NOTCH FILTER CLASSES -----------------
 // For 50Hz AC noise removal
@@ -237,7 +236,7 @@ EnvelopeFilter Envelopefilter2(16);  // Envelope detector for right EMG
 
 // ----------------- BANDPOWER & SMOOTHING -----------------
 BandpowerResults calculateBandpower(float *ps, float binRes, int halfSize) {
-  BandpowerResults r = {0,0,0,0,0,0};
+  BandpowerResults r = { 0, 0, 0, 0, 0, 0 };
   for (int i = 1; i < halfSize; i++) {
     float freq = i * binRes;
     float p = ps[i];
@@ -316,7 +315,7 @@ void processFFT() {
   Serial.println(((smoothedPowers.beta / T) * 100));  // for debugging purpose only
 
   // If the power exceeds the threshold (set as 2% of the total power), the threshold value can be adjusted based on your beta parameters.
-  if (((smoothedPowers.beta / T) * 100) > 2) {
+  if (((smoothedPowers.beta / T) * 100) > betaThreshold) {
     bci_val = 3;
     Serial.println("send 3");
     pCharacteristic_1->setValue(bci_val);  // for forward moving car
@@ -342,7 +341,6 @@ void setup() {
   pinMode(7, OUTPUT);
 
   initFFT();
-  pinMode(buttonPin, INPUT_PULLUP);
   pinMode(ledPin, OUTPUT);
 
   // set initial LED state
@@ -415,16 +413,21 @@ void loop() {
     float env2 = Envelopefilter2.getEnvelope(abs(filtemg2));
 
     // If `env1` exceeds 150, trigger left turn command (send value 1).the threshold value can be adjusted based on your emg parameters.
-    if (env1 > 150) {
-      emg1_val1 = 1;
-      Serial.println("sent 1");                // for debugging purpose only
+    if (env1 > 150 && env2 > 150) {
+      bootback_val = 4;
+      Serial.println("sent 4 - BOTH EMG ACTIVE");  // for debugging purpose only
+      pCharacteristic_1->setValue(bootback_val);   // send value 4
+      pCharacteristic_1->notify();
+    } else if (env1 > 150) {
+      emg1_val1 = 2;
+      Serial.println("sent 2");                // for debugging purpose only
       pCharacteristic_1->setValue(emg1_val1);  // for left turn car
       pCharacteristic_1->notify();
     }
     // If `env2` exceeds 150, trigger right turn command (send value 2).the threshold value can be adjusted based on your emg parameters.
     else if (env2 > 150) {
-      emg2_val2 = 2;
-      Serial.println("sent 2");                // for debugging purpose only
+      emg2_val2 = 1;
+      Serial.println("sent 1");                // for debugging purpose only
       pCharacteristic_1->setValue(emg2_val2);  // for right turn car
       pCharacteristic_1->notify();
     }
@@ -435,44 +438,6 @@ void loop() {
     idx = 0;
   }
 
-  // read the state of the switch into a local variable:
-  int reading = digitalRead(buttonPin);
-
-  // check to see if you just pressed the button
-  // (i.e. the input went from LOW to HIGH), and you've waited long enough
-  // since the last press to ignore any noise:
-
-  // If the switch changed, due to noise or pressing:
-  if (reading != lastButtonState) {
-    // reset the debouncing timer
-    lastDebounceTime = millis();
-  }
-
-  if ((millis() - lastDebounceTime) > debounceDelay) {
-    // whatever the reading is at, it's been there for longer than the debounce
-    // delay, so take it as the actual current state:
-
-    // if the button state has changed:
-    if (reading != buttonState) {
-      buttonState = reading;
-
-      // only toggle the LED if the new button state is HIGH
-      if (buttonState == HIGH) {
-        ledState = !ledState;
-        bootback_val = (bootback_val == 4) ? 0 : 4;
-        Serial.println(bootback_val);
-        if (deviceConnected) {
-          pCharacteristic_1->setValue(bootback_val);
-          pCharacteristic_1->notify();
-        }
-      }
-    }
-  }
-
-  // Set the LED State
-  digitalWrite(ledPin, ledState);
-
-  // The code below keeps the connection status up-to-date:
   // Disconnecting
   if (!deviceConnected && oldDeviceConnected) {
     delay(500);                   // give the bluetooth stack the chance to get things ready

@@ -11,6 +11,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+// Copyright (c) 2025 Aman Maheshwari - Aman@upsidedownlabs.tech
 // Copyright (c) 2025 Krishnanshu Mittal - krishnanshu@upsidedownlabs.tech
 // Copyright (c) 2025 Deepak Khatri - deepak@upsidedownlabs.tech
 // Copyright (c) 2025 Upside Down Labs - contact@upsidedownlabs.tech
@@ -19,18 +20,6 @@
 // Our mission is to make neuroscience affordable and accessible for everyone.
 // By supporting us with your purchase, you help spread innovation and open science.
 // Thank you for being part of this journey with us!
-/*
-  FFT routines based on Espressif’s ESP-DSP examples:
-
-    • Initialization (dsps_fft2r_init_fc32) from:
-      https://github.com/espressif/esp-dsp/tree/master/examples/basic_math
-      (examples/basic_math/main/dsps_math_main.c)
-
-    • Two-real FFT processing
-      (dsps_fft2r_fc32, dsps_bit_rev_fc32, dsps_cplx2reC_fc32)
-      from: https://github.com/espressif/esp-dsp/tree/master/examples/fft
-      (examples/fft/main/dsps_fft_main.c)
-*/
 
 #include <Arduino.h>
 #include <Adafruit_NeoPixel.h>
@@ -42,27 +31,10 @@
 
 // ----------------- USER CONFIGURATION -----------------
 #define SAMPLE_RATE       512           // samples per second
-#define FFT_SIZE          512           // must be a power of two
 #define BAUD_RATE         115200
 #define INPUT_PIN         A0
 #define PIXEL_PIN         15
 #define PIXEL_COUNT       6
-
-// EEG bands (Hz)
-#define DELTA_LOW    0.5f
-#define DELTA_HIGH   4.0f
-#define THETA_LOW    4.0f
-#define THETA_HIGH   8.0f
-#define ALPHA_LOW    8.0f
-#define ALPHA_HIGH   13.0f
-#define BETA_LOW     13.0f
-#define BETA_HIGH    30.0f
-#define GAMMA_LOW    30.0f
-#define GAMMA_HIGH   45.0f
-
-#define SMOOTHING_FACTOR 0.63f
-#define EPS              1e-7f
-
 #define BLINK_SERVICE_UUID        "6910123a-eb0d-4c35-9a60-bebe1dcb549d"
 #define BLINK_CHAR_UUID           "5f4f1107-7fc1-43b2-a540-0aa1a9f1ce78"
 
@@ -79,19 +51,24 @@ Adafruit_NeoPixel pixels(PIXEL_COUNT, PIXEL_PIN, NEO_GRB + NEO_KHZ800);
 #define ENVELOPE_WINDOW_SIZE ((ENVELOPE_WINDOW_MS * SAMPLE_RATE) / 1000)
 
 const unsigned long BLINK_DEBOUNCE_MS   = 250;   // minimal spacing between individual blinks
-const unsigned long DOUBLE_BLINK_MS     = 600;   // max time between the two blinks
+const unsigned long DOUBLE_BLINK_MS     = 800;   // max time between the two blinks
 unsigned long lastBlinkTime     = 0;             // time of most recent blink
 unsigned long firstBlinkTime    = 0;             // time of the first blink in a pair
 int         blinkCount         = 0;             // how many valid blinks so far (0–2)
 bool        menu           = LOW;            // current LED state
+const unsigned long TRIPLE_BLINK_MS = 1000;   // max time between all three blinks
+unsigned long tripleBlinkStartTime = 0;      // time of the first blink in a triple
+int tripleBlinkCount = 0;                    // how many valid blinks in triple sequence
 
 int menuIndex = 0;
 const unsigned long MENU_TIMEOUT_MS = 20000;  // 20 seconds
 unsigned long menuStartTime = 0;
 static bool clientConnected = false;
+unsigned long secondBlinkTime   = 0;
+unsigned long triple_blink_ms   = 600; 
 
 bool betaEventFired = false;
-float BlinkThreshold = 75.0;
+float BlinkThreshold = 50.0;
 
 // ----------------- CALIBRATION VARIABLES -----------------
 enum ProgramState { STATE_CALIBRATING, STATE_RUNNING };
@@ -124,14 +101,6 @@ float envelopeBuffer[ENVELOPE_WINDOW_SIZE] = {0};
 int envelopeIndex = 0;
 float envelopeSum = 0;
 float currentEEGEnvelope = 0;
-
-// ----------------- BUFFERS & TYPES -----------------
-float inputBuffer[FFT_SIZE];
-float powerSpectrum[FFT_SIZE/2];
-
-// For two-real FFT trick
-__attribute__((aligned(16))) float y_cf[FFT_SIZE * 2];
-float *y1_cf = &y_cf[0];
 
 typedef struct {
   float delta, theta, alpha, beta, gamma, total;
@@ -211,106 +180,6 @@ float updateEEGEnvelope(float sample) {
   return envelopeSum / ENVELOPE_WINDOW_SIZE;  // Return moving average
 }
 
-// ----------------- BANDPOWER & SMOOTHING -----------------
-BandpowerResults calculateBandpower(float *ps, float binRes, int halfSize) {
-  BandpowerResults r = {0};
-  for(int i=1; i<halfSize; i++){
-    float freq = i * binRes;
-    float p    = ps[i];
-    r.total   += p;
-         if(freq>=DELTA_LOW && freq<DELTA_HIGH)  r.delta += p;
-    else if(freq>=THETA_LOW && freq<THETA_HIGH)  r.theta += p;
-    else if(freq>=ALPHA_LOW && freq<ALPHA_HIGH)  r.alpha += p;
-    else if(freq>=BETA_LOW  && freq<BETA_HIGH)   r.beta  += p;
-    else if(freq>=GAMMA_LOW && freq<GAMMA_HIGH)  r.gamma += p;
-  }
-  return r;
-}
-
-void smoothBandpower(const BandpowerResults *raw, BandpowerResults *s) {
-  s->delta = SMOOTHING_FACTOR*raw->delta + (1-SMOOTHING_FACTOR)*s->delta;
-  s->theta = SMOOTHING_FACTOR*raw->theta + (1-SMOOTHING_FACTOR)*s->theta;
-  s->alpha = SMOOTHING_FACTOR*raw->alpha + (1-SMOOTHING_FACTOR)*s->alpha;
-  s->beta  = SMOOTHING_FACTOR*raw->beta  + (1-SMOOTHING_FACTOR)*s->beta;
-  s->gamma = SMOOTHING_FACTOR*raw->gamma + (1-SMOOTHING_FACTOR)*s->gamma;
-  s->total = SMOOTHING_FACTOR*raw->total + (1-SMOOTHING_FACTOR)*s->total;
-}
-
-// ----------------- DSP FFT SETUP -----------------
-void initFFT() {
-  // initialize esp-dsp real-FFT (two-real trick)
-  esp_err_t err = dsps_fft2r_init_fc32(NULL, FFT_SIZE);
-  if(err != ESP_OK){
-    Serial.println("FFT init failed");
-    while(1) delay(10);
-  }
-}
-
-// ----------------- FFT + BANDPOWER + PEAK -----------------
-void processFFT() {
-  // pack real→complex: real=inputBuffer, imag=0
-  for(int i=0; i<FFT_SIZE; i++){
-    y_cf[2*i]   = inputBuffer[i];
-    y_cf[2*i+1] = 0.0f;
-  }
-
-  // FFT
-  dsps_fft2r_fc32(y_cf, FFT_SIZE);
-  dsps_bit_rev_fc32(y_cf, FFT_SIZE);
-  dsps_cplx2reC_fc32(y_cf, FFT_SIZE);
-
-  // magnitude² spectrum
-  int half = FFT_SIZE/2;
-  for(int i=0; i<half; i++){
-    float re = y1_cf[2*i];
-    float im = y1_cf[2*i+1];
-    powerSpectrum[i] = re*re + im*im;
-  }
-
-  // detect peak bin (skip i=0)
-  int maxIdx = 1;
-  float maxP = powerSpectrum[1];
-  for(int i=2; i<half; i++){
-    if(powerSpectrum[i] > maxP){
-      maxP = powerSpectrum[i];
-      maxIdx = i;
-    }
-  }
-  float binRes = float(SAMPLE_RATE)/FFT_SIZE;
-  float peakHz = maxIdx * binRes;
-
-  // bandpower & smoothing
-  BandpowerResults raw = calculateBandpower(powerSpectrum, binRes, half);
-  smoothBandpower(&raw, &smoothedPowers);
-  float T = smoothedPowers.total + EPS;  // Total Bandpower
-
-  float betaPct = (smoothedPowers.beta / T) * 100.0;
-
-  // During calibration, track max beta percentage
-  if (programState == STATE_CALIBRATING) {
-    if (betaPct > maxBetaPct) {
-      maxBetaPct = betaPct;
-    }
-    return; // Skip rest of processing during calibration
-  }
-
-  // Normal running state processing
-  if (menu) {
-    if (betaPct > betaThreshold && !betaEventFired) {
-      // --- your one-time action ---
-      pixels.setPixelColor(menuIndex-1, pixels.Color(0,10,0));
-      pixels.show();
-
-      uint8_t cmd[2] = { (uint8_t)'A', (uint8_t)menuIndex };
-      if (clientConnected) {
-        pBlinkChar->setValue(cmd, 2);
-        pBlinkChar->notify();
-      }
-
-      betaEventFired = true;   // mark as handled
-    }
-  }
-}
 
 void showPixels()
 {
@@ -360,8 +229,6 @@ void setup() {
   BLEAdvertising* pAdvertising = pBleServer->getAdvertising();
   pAdvertising->start();
   Serial.println(">> BLE Advertising started");
-
-  initFFT();
 }
 
 void loop() {
@@ -379,57 +246,11 @@ void loop() {
     float filtered = highpass(filt);
     currentEEGEnvelope = updateEEGEnvelope(filtered);
     
-    inputBuffer[idx++] = filt;
   }
-
-  // Process FFT when buffer is full
-  if(idx >= FFT_SIZE){
-    processFFT();
-    idx = 0;
-  }
-
-  // Handle calibration state
-  if (programState == STATE_CALIBRATING) {
-    unsigned long currentTime = millis();
-    
-    // Update chasing LED effect (every 100ms)
-    if (currentTime - lastChaseUpdate > 100) {
-      lastChaseUpdate = currentTime;
-      
-      // Clear all LEDs
-      pixels.clear();
-      
-      // Set current position to white
-      pixels.setPixelColor(chasePosition, pixels.Color(100, 100, 100));  // White
-      
-      // Move to next position
-      chasePosition = (chasePosition + 1) % PIXEL_COUNT;
-      
-      pixels.show();
-    }
-
-    // Check if calibration is complete
-    if (currentTime - calibrationStartTime > CALIBRATION_DURATION_MS) {
-      programState = STATE_RUNNING;
-      pixels.clear();
-      pixels.show();
-      
-      // Set threshold to 60% of max observed beta
-      betaThreshold = maxBetaPct * THRESHOLD_MULTIPLIER;
-      
-      Serial.print("Calibration complete. Max Beta: ");
-      Serial.print(maxBetaPct);
-      Serial.print("%, Threshold: ");
-      Serial.print(betaThreshold);
-      Serial.println("%");
-    }
-    return; // Skip rest of loop during calibration
-  }
-
   // Normal running state processing
   unsigned long nowMs = millis();
 
-  // 1) Did we cross threshold and respect per‑blink debounce?
+// 1) Did we cross threshold and respect per‑blink debounce?
   if (currentEEGEnvelope > BlinkThreshold && (nowMs - lastBlinkTime) >= BLINK_DEBOUNCE_MS) {
     lastBlinkTime = nowMs;    // mark this blink
 
@@ -438,66 +259,83 @@ void loop() {
       // first blink of the pair
       firstBlinkTime = nowMs;
       blinkCount = 1;
+      // Serial.println("First blink detected");
     }
     else if (blinkCount == 1 && (nowMs - firstBlinkTime) <= DOUBLE_BLINK_MS) {
-      // second blink in time → toggle LED
-      if(!menu)
-      {
-        menu = !menu;
-        menuStartTime = millis();      // start our 10s countdown
-        Serial.println(0);
-        if (clientConnected) 
-        {
-          uint8_t cmd = 0;
-          pBlinkChar->setValue(&cmd, 1);
-          // 2) Send the notification
-          pBlinkChar->notify();
-        }
-        showPixels();
-        menuIndex = 0;
-        blinkCount = 0;         // reset for next pair
-      }
-      else
-      {
-        betaEventFired = false;
-        menuStartTime = millis();      // restart the 10 second countdown
-        if(menuIndex==6)
-        {
-          menuIndex=1;
-        }
-        else
-        {
-          menuIndex++;
-        }
-        Serial.println(menuIndex);
-        uint8_t cmd[2];
-        
-        cmd[0] = (uint8_t)('S');
-        cmd[1] = menuIndex;
+      // double blink detected 
+      secondBlinkTime = nowMs;
+      blinkCount = 2;
+    }
+    else if (blinkCount==2 && (nowMs - secondBlinkTime) <= triple_blink_ms)
+    {
+          pixels.setPixelColor(menuIndex-1, pixels.Color(0,10,0));
+    pixels.show();
 
-        if (clientConnected) 
-        {
-          pBlinkChar->setValue(cmd, 2); // send exactly 2 bytes
-          pBlinkChar->notify();
-        }
+    uint8_t cmd[2] = { (uint8_t)'A', (uint8_t)menuIndex };
+    if (clientConnected) {
+      pBlinkChar->setValue(cmd, 2);
+      pBlinkChar->notify();
+    }
 
-        showPixels();
-        pixels.setPixelColor(menuIndex-1, pixels.Color(0, 0 , 10));
-        pixels.show();
-        blinkCount = 0;
-      }
+      Serial.println("Triple blink detected!");
+      blinkCount=0;
     }
     else {
       // either too late or extra blink → restart sequence
       firstBlinkTime = nowMs;
       blinkCount = 1;
+      
     }
   }
+
+    // if we were in “2 blinks” but no third arrived in time → treat as a real double
+    if (blinkCount == 2 && (nowMs - secondBlinkTime) > triple_blink_ms) {
+          if(!menu) {
+      menu = !menu;
+      menuStartTime = millis();      // start our 10s countdown
+      Serial.println(0);
+      if (clientConnected) {
+        uint8_t cmd = 0;
+        pBlinkChar->setValue(&cmd, 1);
+        pBlinkChar->notify();
+      }
+      showPixels();
+      menuIndex = 0;
+      blinkCount = 0;         // reset for next pair
+    } else {
+      betaEventFired = false;
+      menuStartTime = millis();      // restart the 10 second countdown
+      if(menuIndex==6) {
+        menuIndex=1;
+      } else {
+        menuIndex++;
+      }
+      Serial.println(menuIndex);
+      uint8_t cmd[2];
+      
+      cmd[0] = (uint8_t)('S');
+      cmd[1] = menuIndex;
+
+      if (clientConnected) {
+        pBlinkChar->setValue(cmd, 2); // send exactly 2 bytes
+        pBlinkChar->notify();
+      }
+
+      showPixels();
+      pixels.setPixelColor(menuIndex-1, pixels.Color(0, 0 , 10));
+      pixels.show();
+      blinkCount = 0;
+    }
+      Serial.println("Double blink detected");
+
+      blinkCount = 0;
+    }
 
   // 3) Timeout: if we never got the second blink in time, reset
   if (blinkCount == 1 && (nowMs - firstBlinkTime) > DOUBLE_BLINK_MS) {
     blinkCount = 0;
   }
+
 
   unsigned long resetTimer = millis();
   if (menu && (resetTimer - menuStartTime > MENU_TIMEOUT_MS)) {
