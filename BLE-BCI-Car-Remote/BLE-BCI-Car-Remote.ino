@@ -26,6 +26,7 @@
  Firmware: https://github.com/mo-thunderz/Esp32BlePart2
  YouTube video: https://www.youtube.com/watch?v=s3yoZa6kzus
 */
+#include <Adafruit_NeoPixel.h>
 
 #include <BLEDevice.h>
 #include <BLEServer.h>
@@ -37,6 +38,7 @@
 // constants won't change. They're used here to set pin numbers:
 
 // Variables will change:
+int ledState = LOW;        // the current state of the output pin
 uint32_t buttonState;       // the current reading from the input pin
 int lastButtonState = LOW;  // the previous reading from the input pin
 uint32_t bci_val = 0;       // EEG-based control value (0=stop, 3=forward)
@@ -60,6 +62,7 @@ BLE2902 *pBLE2902_2;                          // Pointer to BLE2902 of Character
 // Some variables to keep track on device connected
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
+Adafruit_NeoPixel pixel(6, 15, NEO_GRB + NEO_KHZ800);
 
 // Variable that will continuously be increased and written to the client
 uint32_t value = 0;
@@ -336,6 +339,9 @@ void setup() {
   pinMode(INPUT_PIN2, INPUT);
   pinMode(INPUT_PIN3, INPUT);
 
+  pixel.begin();  // Initialize NeoPixel
+  pixel.setPixelColor(0, pixel.Color(255, 255, 0)); // Set NeoPixel to yellow (RGB: 255, 255, 0)
+  pixel.show();  // Update the pixel with the new color
 
   initFFT();
 
@@ -389,7 +395,15 @@ void loop() {
   static unsigned long lastMicros = micros();
   unsigned long now = micros(), dt = now - lastMicros;
   lastMicros = now;
-
+  pixel.setPixelColor(0, pixel.Color(255, 255, 0)); // Yellow when connected
+  pixel.show();
+  // Update NeoPixel based on connection status
+  if (deviceConnected) {
+    pixel.setPixelColor(0, pixel.Color(255, 255, 255)); // Yellow when connected
+  } else {
+    pixel.setPixelColor(0, pixel.Color(255, 0, 0)); // Red when disconnected
+  }
+  pixel.show();
   static long timer = 0;
   timer -= dt;
   if (timer <= 0) {
