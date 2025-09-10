@@ -35,10 +35,8 @@
 #include "esp_dsp.h"
 #include <vector>
 // constants won't change. They're used here to set pin numbers:
-const int ledPin = 7;     // the number of the LED pin
 
 // Variables will change:
-int ledState = HIGH;        // the current state of the output pin
 uint32_t buttonState;       // the current reading from the input pin
 int lastButtonState = LOW;  // the previous reading from the input pin
 uint32_t bci_val = 0;       // EEG-based control value (0=stop, 3=forward)
@@ -338,13 +336,9 @@ void setup() {
   pinMode(INPUT_PIN2, INPUT);
   pinMode(INPUT_PIN3, INPUT);
 
-  pinMode(7, OUTPUT);
 
   initFFT();
-  pinMode(ledPin, OUTPUT);
 
-  // set initial LED state
-  digitalWrite(ledPin, ledState);
   // Create the BLE Device
   BLEDevice::init("ESP32");
 
@@ -450,6 +444,5 @@ void loop() {
     // do stuff here on connecting
     oldDeviceConnected = deviceConnected;
   }
-  // Save the reading. Next time through the loop, it'll be the lastButtonState:
-  lastButtonState = reading;
+
 }
