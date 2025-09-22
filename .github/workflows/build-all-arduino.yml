@@ -43,6 +43,9 @@ jobs:
         arduino-cli core install esp32:esp32@3.2.0
         arduino-cli lib install "IRremote"
         arduino-cli lib install "Adafruit NeoPixel"
+        arduino-cli lib install "NimBLE-Arduino"
+        arduino-cli lib install "ESP32-BLE-Gamepad"
+
 
     - name: 🏗️ Create build directory
       if: steps.check-release.outputs.exists == 'false'

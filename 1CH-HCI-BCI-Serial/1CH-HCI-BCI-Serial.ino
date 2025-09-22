@@ -57,7 +57,7 @@
 // Modify Thresholds while debugging
 const float BETA_THRESHOLD  = 10.0; // adjust based on calibration: typically 50% of max beta power during focused state
 const float BlinkLowerThreshold = 50.0;
-const float BlinkUpperThreshold = 80.0;
+const float BlinkUpperThreshold = 90.0;
 const float JAW_ON_THRESHOLD  = 60.0; // same as your current threshold
 const float JAW_OFF_THRESHOLD = 50.0; // hysteresis: must fall below this to re-arm
 
@@ -343,7 +343,7 @@ void IRAM_ATTR onSampleTimer() {
     int raw = analogRead(INPUT_PIN);
     float filtered = Notch(raw);
     float eeg = EEGFilter(filtered);
-    float eog = EOGFilter(filtered);
+    float eog = EOGFilter(eeg);
     float emg = EMGFilter(filtered);
     
     // Store in circular buffer
