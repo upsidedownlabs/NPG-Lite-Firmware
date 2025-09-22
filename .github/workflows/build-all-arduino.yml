@@ -45,6 +45,9 @@ jobs:
         arduino-cli lib install "Adafruit NeoPixel"
         arduino-cli lib install "NimBLE-Arduino"
         arduino-cli lib install "ESP32-BLE-Gamepad"
+        arduino-cli lib install "Adafruit BusIO"
+        arduino-cli lib install "Adafruit Unified Sensor"
+        arduino-cli lib install "Adafruit MPU6050"
 
 
     - name: 🏗️ Create build directory
