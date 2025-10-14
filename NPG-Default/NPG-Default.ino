@@ -33,10 +33,11 @@
 #define BUZZER_PIN 8
 #define LED_MOTOR_PIN 7
 #define PIXEL_PIN 15
+#define BOOT_PIN 9
 // How many NeoPixels are attached to the Arduino?
 #define PIXEL_COUNT 6
 
-uint8_t npgPins[] = {15, 9, 5, 4, 3, 8, 21, 23, 22, 7, 16, 17, 20, 18, 19};
+uint8_t npgPins[] = {5, 4, 3, 8, 21, 23, 22, 7, 16, 17, 20, 18, 19};
 uint8_t totalPins = sizeof(npgPins)/sizeof(uint8_t);
 
 // Declare NeoPixel strip object:
@@ -202,14 +203,33 @@ bool checkShorts(uint8_t *npgPins, uint8_t totalPins){
 
 void setup() {
   Serial.begin(115200);
-  delay(100);
-  if (!checkShorts(npgPins, totalPins)){
-    strip.setPixelColor(0, strip.Color(255, 0, 0));
+  delay(1000);
+
+  strip.begin();           // INITIALIZE NeoPixel strip object (REQUIRED)
+  strip.show();            // Turn OFF all pixels ASAP
+  strip.setBrightness(50); // Set BRIGHTNESS to about 1/5 (max = 255)
+
+  pinMode(BOOT_PIN, INPUT_PULLUP);
+  for (int i = 0; i < 6; i++){
+    // just for strip pattern => 0->5->1->4->2->3
+    uint8_t cF = i%2 ? 1 : 0;
+    uint8_t pX = cF ? 6 - (i+1)/2 : i/2;
+    strip.setPixelColor(pX, strip.Color(255 * pX/5, 255*(5-pX)/5,  255 * (1 - pX)/5));
     strip.show();
-    while (true){
-      ; // Stop if shorts are found
+    delay(500);
+    strip.clear();
+    if (digitalRead(BOOT_PIN) == LOW){
+      if (!checkShorts(npgPins, totalPins)){
+        strip.setPixelColor(0, strip.Color(255, 0, 0));
+        strip.show();
+        while (true){
+          ; // Stop if shorts are found
+        }
+      }
+      break;
     }
   }
+  
   pinMode(LED_MOTOR_PIN, OUTPUT);
 
   int analogValue = analogRead(A6);
@@ -219,15 +239,13 @@ void setup() {
 
   while(percentage<=10)   // Check if battery is less than 10%
   {
-    digitalWrite(LED_MOTOR_PIN, HIGH);
-    delay(500);
-    digitalWrite(LED_MOTOR_PIN, LOW);
-    delay(500);
+    strip.clear();
+    strip.setPixelColor(5, strip.Color(255 ,255, 0));
+    strip.show();
+    while(true){
+      ; // battery low, stop here.
+    }
   }
-
-  strip.begin();           // INITIALIZE NeoPixel strip object (REQUIRED)
-  strip.show();            // Turn OFF all pixels ASAP
-  strip.setBrightness(50); // Set BRIGHTNESS to about 1/5 (max = 255)
 
   // Set static rainbow colors on each pixel individually
   strip.setPixelColor(0, strip.ColorHSV(0, 255, 255));       // Red
