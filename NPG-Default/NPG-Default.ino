@@ -36,6 +36,9 @@
 // How many NeoPixels are attached to the Arduino?
 #define PIXEL_COUNT 6
 
+uint8_t npgPins[] = {15, 9, 5, 4, 3, 8, 21, 23, 22, 7, 16, 17, 20, 18, 19};
+uint8_t totalPins = sizeof(npgPins)/sizeof(uint8_t);
+
 // Declare NeoPixel strip object:
 Adafruit_NeoPixel strip(PIXEL_COUNT, PIXEL_PIN, NEO_GRB + NEO_KHZ800);
 
@@ -140,8 +143,73 @@ void theaterChaseRainbow(int wait) {
   }
 }
 
-void setup() {
+bool checkShorts(uint8_t *npgPins, uint8_t totalPins){
+  uint8_t shortCounter = 0;
+  uint8_t vccShorts[totalPins] = {0}; // 1 if shorted with vcc
+  // Test for short with VCC
+  for (int i = 0; i < totalPins; i++){
+    pinMode(npgPins[i], INPUT_PULLDOWN);
+    if (digitalRead(npgPins[i]) == HIGH){
+      Serial.print("Pin-");
+      Serial.print(npgPins[i]);
+      Serial.println(" Connected to VCC");
+      vccShorts[i] = 1;
+      shortCounter++;
+    }
+    pinMode(npgPins[i], INPUT_PULLUP);
+  }
+  // Test for short with GND
+  for (int i = 0; i < totalPins; i++){
+    if (digitalRead(npgPins[i]) == LOW){
+      Serial.print("Pin-");
+      Serial.print(npgPins[i]);
+      Serial.println(" Connected to GND");
+      shortCounter++;
+    }
+  }
+  // Test for shorts between pins
+  // set all pins low
+  // set first pin high, check if any other pin gets high
+  // repeat for all pins in order
+  for (int i = 0; i < totalPins; i++){
+    pinMode(npgPins[i], OUTPUT);
+    digitalWrite(npgPins[i], LOW);
+  }
+  for (int i = 0; i < totalPins; i++){
+    pinMode(npgPins[i], OUTPUT);
+    digitalWrite(npgPins[i], HIGH);
+    delay(10);
+    // no need to go backwards, already checked
+    for(int j = i + 1; j < totalPins; j++){
+      pinMode(npgPins[j], INPUT_PULLDOWN);
+      if (digitalRead(npgPins[j]) == HIGH && vccShorts[j] != 1){
+        Serial.print("Pin-");
+        Serial.print(npgPins[i]);
+        Serial.print(" is shorted with Pin-");
+        Serial.println(npgPins[j]);
+        shortCounter++;
+      }
+    }
+    digitalWrite(npgPins[i], LOW);
+  }
+  if (shortCounter != 0){
+    Serial.print(shortCounter);
+    Serial.println(" shorts found");
+    return false;
+  }
+  return true;
+}
 
+void setup() {
+  Serial.begin(115200);
+  delay(100);
+  if (!checkShorts(npgPins, totalPins)){
+    strip.setPixelColor(0, strip.Color(255, 0, 0));
+    strip.show();
+    while (true){
+      ; // Stop if shorts are found
+    }
+  }
   pinMode(LED_MOTOR_PIN, OUTPUT);
 
   int analogValue = analogRead(A6);
