@@ -38,7 +38,7 @@
 #define PIXEL_COUNT 6
 
 uint8_t npgPins[] = {5, 4, 3, 8, 21, 23, 22, 7, 16, 17, 20, 18, 19};
-uint8_t totalPins = sizeof(npgPins)/sizeof(uint8_t);
+constexpr uint8_t TOTAL_PINS = sizeof(npgPins) / sizeof(npgPins[0]);
 
 // Declare NeoPixel strip object:
 Adafruit_NeoPixel strip(PIXEL_COUNT, PIXEL_PIN, NEO_GRB + NEO_KHZ800);
@@ -144,46 +144,48 @@ void theaterChaseRainbow(int wait) {
   }
 }
 
-bool checkShorts(uint8_t *npgPins, uint8_t totalPins){
+bool checkShorts(uint8_t *npgPins, const uint8_t TOTAL_PINS){
   uint8_t shortCounter = 0;
-  uint8_t vccShorts[totalPins] = {0}; // 1 if shorted with vcc
+  bool vccShorts[TOTAL_PINS] = {0}; // true if shorted with vcc
+  bool gndShorts[TOTAL_PINS] = {0}; // true if shorted with gnd
   // Test for short with VCC
-  for (int i = 0; i < totalPins; i++){
+  for (int i = 0; i < TOTAL_PINS; i++){
     pinMode(npgPins[i], INPUT_PULLDOWN);
+    delayMicroseconds(50);
     if (digitalRead(npgPins[i]) == HIGH){
       Serial.print("Pin-");
       Serial.print(npgPins[i]);
       Serial.println(" Connected to VCC");
-      vccShorts[i] = 1;
+      vccShorts[i] = true;
       shortCounter++;
     }
-    pinMode(npgPins[i], INPUT_PULLUP);
+    pinMode(npgPins[i], INPUT); // reset back to floating
   }
   // Test for short with GND
-  for (int i = 0; i < totalPins; i++){
+  for (int i = 0; i < TOTAL_PINS; i++){
+    if (vccShorts[i]) continue; // skip pins which are shorted to vcc
+    pinMode(npgPins[i], INPUT_PULLUP);
+    delayMicroseconds(50);
     if (digitalRead(npgPins[i]) == LOW){
       Serial.print("Pin-");
       Serial.print(npgPins[i]);
       Serial.println(" Connected to GND");
+      gndShorts[i] = true;
       shortCounter++;
     }
+    pinMode(npgPins[i], INPUT); // reset back to floating
   }
   // Test for shorts between pins
-  // set all pins low
-  // set first pin high, check if any other pin gets high
-  // repeat for all pins in order
-  for (int i = 0; i < totalPins; i++){
-    pinMode(npgPins[i], OUTPUT);
-    digitalWrite(npgPins[i], LOW);
-  }
-  for (int i = 0; i < totalPins; i++){
+  for (int i = 0; i < TOTAL_PINS; i++){
+    if (vccShorts[i] || gndShorts[i]) continue; // skip power shorted pins
     pinMode(npgPins[i], OUTPUT);
     digitalWrite(npgPins[i], HIGH);
-    delay(10);
+    delayMicroseconds(50);
     // no need to go backwards, already checked
-    for(int j = i + 1; j < totalPins; j++){
+    for(int j = i + 1; j < TOTAL_PINS; j++){
       pinMode(npgPins[j], INPUT_PULLDOWN);
-      if (digitalRead(npgPins[j]) == HIGH && vccShorts[j] != 1){
+      delayMicroseconds(50);
+      if (digitalRead(npgPins[j]) == HIGH && !vccShorts[j]){
         Serial.print("Pin-");
         Serial.print(npgPins[i]);
         Serial.print(" is shorted with Pin-");
@@ -219,11 +221,11 @@ void setup() {
     delay(500);
     strip.clear();
     if (digitalRead(BOOT_PIN) == LOW){
-      if (!checkShorts(npgPins, totalPins)){
+      if (!checkShorts(npgPins, TOTAL_PINS)){
         strip.setPixelColor(0, strip.Color(255, 0, 0));
         strip.show();
         while (true){
-          ; // Stop if shorts are found
+          delay(100); // Stop if shorts are found
         }
       }
       break;
@@ -243,7 +245,7 @@ void setup() {
     strip.setPixelColor(5, strip.Color(255 ,255, 0));
     strip.show();
     while(true){
-      ; // battery low, stop here.
+      delay(100); // battery low, stop here.
     }
   }
 
