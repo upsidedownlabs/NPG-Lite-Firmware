@@ -50,7 +50,9 @@ jobs:
         arduino-cli lib install "Adafruit MPU6050"
         arduino-cli lib install "BLE"
         arduino-cli lib install "esp-dsp"
-
+        arduino-cli lib install "WiFiManager"
+        arduino-cli lib install "WebSocketsServer"
+        arduino-cli lib install "ESP32 BLE Arduino"
 
     - name: 🏗️ Create build directory
       if: steps.check-release.outputs.exists == 'false'
