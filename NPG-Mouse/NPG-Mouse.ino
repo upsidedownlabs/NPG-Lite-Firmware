@@ -120,6 +120,7 @@ unsigned long firstBlinkTime  = 0;
 unsigned long secondBlinkTime = 0;
 unsigned long triple_blink_ms = 800;
 int blinkCount = 0;
+bool blinkActive = false;
 
 float envelopeBuffer[ENVELOPE_WINDOW_SIZE] = {0};
 int envelopeIndex = 0;
@@ -486,7 +487,8 @@ void loop() {
     currentEEGEnvelope = updateEnvelope(filteog);
 
     // 3) Blink detection - Double blink = Left click, Triple blink = Right click
-    if (currentEEGEnvelope > BlinkThreshold && (nowMs - lastBlinkTime) >= BLINK_DEBOUNCE_MS) {
+    bool envelopeHigh = currentEEGEnvelope > BlinkThreshold;
+    if (!blinkActive && envelopeHigh && (nowMs - lastBlinkTime) >= BLINK_DEBOUNCE_MS) {
       lastBlinkTime = nowMs;
       if (blinkCount == 0) {
         firstBlinkTime = nowMs; blinkCount = 1;
@@ -499,6 +501,11 @@ void loop() {
       } else {
         firstBlinkTime = nowMs; blinkCount = 1;
       }
+      blinkActive = true;
+    }
+
+    if (!envelopeHigh) {
+      blinkActive = false; 
     }
 
     // Double blink timeout -> Left mouse click (press once)
