@@ -33,8 +33,12 @@
 #define BUZZER_PIN 8
 #define LED_MOTOR_PIN 7
 #define PIXEL_PIN 15
+#define BOOT_PIN 9
 // How many NeoPixels are attached to the Arduino?
 #define PIXEL_COUNT 6
+
+uint8_t npgPins[] = {5, 4, 3, 8, 21, 23, 22, 7, 16, 17, 20, 18, 19};
+constexpr uint8_t TOTAL_PINS = sizeof(npgPins) / sizeof(npgPins[0]);
 
 // Declare NeoPixel strip object:
 Adafruit_NeoPixel strip(PIXEL_COUNT, PIXEL_PIN, NEO_GRB + NEO_KHZ800);
@@ -140,8 +144,94 @@ void theaterChaseRainbow(int wait) {
   }
 }
 
-void setup() {
+bool checkShorts(uint8_t *npgPins, const uint8_t TOTAL_PINS){
+  uint8_t shortCounter = 0;
+  bool vccShorts[TOTAL_PINS] = {0}; // true if shorted with vcc
+  bool gndShorts[TOTAL_PINS] = {0}; // true if shorted with gnd
+  // Test for short with VCC
+  for (int i = 0; i < TOTAL_PINS; i++){
+    pinMode(npgPins[i], INPUT_PULLDOWN);
+    delayMicroseconds(50);
+    if (digitalRead(npgPins[i]) == HIGH){
+      Serial.print("Pin-");
+      Serial.print(npgPins[i]);
+      Serial.println(" Connected to VCC");
+      vccShorts[i] = true;
+      shortCounter++;
+    }
+    pinMode(npgPins[i], INPUT); // reset back to floating
+  }
+  // Test for short with GND
+  for (int i = 0; i < TOTAL_PINS; i++){
+    if (vccShorts[i]) continue; // skip pins which are shorted to vcc
+    pinMode(npgPins[i], INPUT_PULLUP);
+    delayMicroseconds(50);
+    if (digitalRead(npgPins[i]) == LOW){
+      Serial.print("Pin-");
+      Serial.print(npgPins[i]);
+      Serial.println(" Connected to GND");
+      gndShorts[i] = true;
+      shortCounter++;
+    }
+    pinMode(npgPins[i], INPUT); // reset back to floating
+  }
+  // Test for shorts between pins
+  for (int i = 0; i < TOTAL_PINS; i++){
+    if (vccShorts[i] || gndShorts[i]) continue; // skip power shorted pins
+    pinMode(npgPins[i], OUTPUT);
+    digitalWrite(npgPins[i], HIGH);
+    delayMicroseconds(50);
+    // no need to go backwards, already checked
+    for(int j = i + 1; j < TOTAL_PINS; j++){
+      pinMode(npgPins[j], INPUT_PULLDOWN);
+      delayMicroseconds(50);
+      if (digitalRead(npgPins[j]) == HIGH && !vccShorts[j]){
+        Serial.print("Pin-");
+        Serial.print(npgPins[i]);
+        Serial.print(" is shorted with Pin-");
+        Serial.println(npgPins[j]);
+        shortCounter++;
+      }
+    }
+    digitalWrite(npgPins[i], LOW);
+  }
+  if (shortCounter != 0){
+    Serial.print(shortCounter);
+    Serial.println(" shorts found");
+    return false;
+  }
+  return true;
+}
 
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  strip.begin();           // INITIALIZE NeoPixel strip object (REQUIRED)
+  strip.show();            // Turn OFF all pixels ASAP
+  strip.setBrightness(50); // Set BRIGHTNESS to about 1/5 (max = 255)
+
+  pinMode(BOOT_PIN, INPUT_PULLUP);
+  for (int i = 0; i < 6; i++){
+    // just for strip pattern => 0->5->1->4->2->3
+    uint8_t cF = i%2 ? 1 : 0;
+    uint8_t pX = cF ? 6 - (i+1)/2 : i/2;
+    strip.setPixelColor(pX, strip.Color(255 * pX/5, 255*(5-pX)/5,  255 * (1 - pX)/5));
+    strip.show();
+    delay(500);
+    strip.clear();
+    if (digitalRead(BOOT_PIN) == LOW){
+      if (!checkShorts(npgPins, TOTAL_PINS)){
+        strip.setPixelColor(0, strip.Color(255, 0, 0));
+        strip.show();
+        while (true){
+          delay(100); // Stop if shorts are found
+        }
+      }
+      break;
+    }
+  }
+  
   pinMode(LED_MOTOR_PIN, OUTPUT);
 
   int analogValue = analogRead(A6);
@@ -151,15 +241,13 @@ void setup() {
 
   while(percentage<=10)   // Check if battery is less than 10%
   {
-    digitalWrite(LED_MOTOR_PIN, HIGH);
-    delay(500);
-    digitalWrite(LED_MOTOR_PIN, LOW);
-    delay(500);
+    strip.clear();
+    strip.setPixelColor(5, strip.Color(255 ,255, 0));
+    strip.show();
+    while(true){
+      delay(100); // battery low, stop here.
+    }
   }
-
-  strip.begin();           // INITIALIZE NeoPixel strip object (REQUIRED)
-  strip.show();            // Turn OFF all pixels ASAP
-  strip.setBrightness(50); // Set BRIGHTNESS to about 1/5 (max = 255)
 
   // Set static rainbow colors on each pixel individually
   strip.setPixelColor(0, strip.ColorHSV(0, 255, 255));       // Red
