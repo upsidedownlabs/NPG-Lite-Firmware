@@ -48,6 +48,8 @@ jobs:
         arduino-cli lib install "Adafruit BusIO"
         arduino-cli lib install "Adafruit Unified Sensor"
         arduino-cli lib install "Adafruit MPU6050"
+        arduino-cli lib install "BLE"
+        arduino-cli lib install "esp-dsp"
 
 
     - name: 🏗️ Create build directory
