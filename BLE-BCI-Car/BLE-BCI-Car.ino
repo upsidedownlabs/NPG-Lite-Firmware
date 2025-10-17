@@ -42,10 +42,10 @@ static boolean notify = false;
 static boolean doScan = false;
 
 // Define wheel control pins
-const int leftWheelForward = D0;
-const int leftWheelBackward = D1;
-const int rightWheelForward = D3;
-const int rightWheelBackward = D2;
+const int leftWheelForward = 0;
+const int leftWheelBackward = 1;
+const int rightWheelForward = 21;
+const int rightWheelBackward = 2;
 
 // Define pointer for the BLE connection
 static BLEAdvertisedDevice* myDevice;
