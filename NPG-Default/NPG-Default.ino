@@ -210,6 +210,33 @@ void setup() {
   strip.begin();           // INITIALIZE NeoPixel strip object (REQUIRED)
   strip.show();            // Turn OFF all pixels ASAP
   strip.setBrightness(50); // Set BRIGHTNESS to about 1/5 (max = 255)
+  
+  //check battery first
+  int analogValue = analogRead(A6);
+  float voltage = (analogValue / 1000.0) * 2; // This is for ESP32C6 v0.1
+  voltage += 0.022;
+  float percentage = interpolatePercentage(voltage);
+
+  while(percentage<=10)   // Check if battery is less than 10%
+  {
+    static uint16_t fader = 100;
+    static bool decreasing = true;
+    strip.clear();
+    strip.setPixelColor(0, strip.Color(fader, 0, 0));
+    strip.show();
+    delay(20);
+    if (decreasing){
+      fader = fader - 2;
+      if (fader < 10){
+        decreasing = false;
+      }
+    }else {
+      fader = fader + 2;
+      if (fader > 100){
+        decreasing = true;
+      }
+    }
+  }
 
   pinMode(BOOT_PIN, INPUT_PULLUP);
   for (int i = 0; i < 6; i++){
@@ -233,21 +260,6 @@ void setup() {
   }
   
   pinMode(LED_MOTOR_PIN, OUTPUT);
-
-  int analogValue = analogRead(A6);
-  float voltage = (analogValue / 1000.0) * 2; // This is for ESP32C6 v0.1
-  voltage += 0.022;
-  float percentage = interpolatePercentage(voltage);
-
-  while(percentage<=10)   // Check if battery is less than 10%
-  {
-    strip.clear();
-    strip.setPixelColor(5, strip.Color(255 ,255, 0));
-    strip.show();
-    while(true){
-      delay(100); // battery low, stop here.
-    }
-  }
 
   // Set static rainbow colors on each pixel individually
   strip.setPixelColor(0, strip.ColorHSV(0, 255, 255));       // Red
