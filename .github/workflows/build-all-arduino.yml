@@ -49,6 +49,9 @@ jobs:
         arduino-cli lib install "Adafruit Unified Sensor"
         arduino-cli lib install "Adafruit MPU6050"
         arduino-cli lib install "WiFiManager"
+        arduino-cli lib install "WebSockets"
+        arduino-cli lib install "ESP32-BLE-Keyboard"
+        arduino-cli lib install "ESP32-BLE-Mouse"
 
     - name: 🏗️ Create build directory
       if: steps.check-release.outputs.exists == 'false'
