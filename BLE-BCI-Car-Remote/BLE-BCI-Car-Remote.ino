@@ -331,17 +331,17 @@ void processFFT() {
 }
 
 void setup() {
+    // ----- Initialize Neopixel LED -----
+  pixel.begin();
+  // Set the Neopixel to red (indicating device turned on)
+  pixel.setPixelColor(0, pixel.Color(0, 0, 0));
+  pixel.setPixelColor(2, pixel.Color(0, 0, 0));
+  pixel.setPixelColor(5, pixel.Color(0, 0, 0));
+  pixel.show();
   Serial.begin(BAUD_RATE);
-  while (!Serial) {
-    delay(1);
-  }
   pinMode(INPUT_PIN1, INPUT);
   pinMode(INPUT_PIN2, INPUT);
   pinMode(INPUT_PIN3, INPUT);
-
-  pixel.begin();  // Initialize NeoPixel
-  pixel.setPixelColor(0, pixel.Color(255, 255, 0)); // Set NeoPixel to yellow (RGB: 255, 255, 0)
-  pixel.show();  // Update the pixel with the new color
 
   initFFT();
 
@@ -399,11 +399,13 @@ void loop() {
   pixel.show();
   // Update NeoPixel based on connection status
   if (deviceConnected) {
-    pixel.setPixelColor(0, pixel.Color(255, 255, 255)); // Yellow when connected
+    pixel.setPixelColor(5, pixel.Color(255, 255, 255)); // white when connected
+    pixel.show();
   } else {
-    pixel.setPixelColor(0, pixel.Color(255, 0, 0)); // Red when disconnected
+    pixel.setPixelColor(2, pixel.Color(255, 0, 0)); // Red when disconnected
+    pixel.show();
   }
-  pixel.show();
+  
   static long timer = 0;
   timer -= dt;
   if (timer <= 0) {
