@@ -395,16 +395,14 @@ void loop() {
   static unsigned long lastMicros = micros();
   unsigned long now = micros(), dt = now - lastMicros;
   lastMicros = now;
-  pixel.setPixelColor(0, pixel.Color(255, 255, 0)); // Yellow when connected
-  pixel.show();
+  pixel.setPixelColor(0, pixel.Color(255, 255, 0)); // Yellow indicating running
   // Update NeoPixel based on connection status
   if (deviceConnected) {
-    pixel.setPixelColor(5, pixel.Color(255, 255, 255)); // white when connected
-    pixel.show();
+    pixel.setPixelColor(5, pixel.Color(0, 255, 0)); // Green when connected
   } else {
-    pixel.setPixelColor(2, pixel.Color(255, 0, 0)); // Red when disconnected
-    pixel.show();
+    pixel.setPixelColor(5, pixel.Color(255, 0, 0)); // Red when disconnected
   }
+  pixel.show();
   
   static long timer = 0;
   timer -= dt;
