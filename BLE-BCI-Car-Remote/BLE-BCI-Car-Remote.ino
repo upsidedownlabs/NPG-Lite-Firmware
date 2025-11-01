@@ -38,7 +38,6 @@
 // constants won't change. They're used here to set pin numbers:
 
 // Variables will change:
-int ledState = LOW;        // the current state of the output pin
 uint32_t buttonState;       // the current reading from the input pin
 int lastButtonState = LOW;  // the previous reading from the input pin
 uint32_t bci_val = 0;       // EEG-based control value (0=stop, 3=forward)
