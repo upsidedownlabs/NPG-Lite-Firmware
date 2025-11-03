@@ -26,6 +26,7 @@
  Firmware: https://github.com/mo-thunderz/Esp32BlePart2
  YouTube video: https://www.youtube.com/watch?v=s3yoZa6kzus
 */
+#include <Adafruit_NeoPixel.h>
 
 #include <BLEDevice.h>
 #include <BLEServer.h>
@@ -35,10 +36,8 @@
 #include "esp_dsp.h"
 #include <vector>
 // constants won't change. They're used here to set pin numbers:
-const int ledPin = 7;     // the number of the LED pin
 
 // Variables will change:
-int ledState = HIGH;        // the current state of the output pin
 uint32_t buttonState;       // the current reading from the input pin
 int lastButtonState = LOW;  // the previous reading from the input pin
 uint32_t bci_val = 0;       // EEG-based control value (0=stop, 3=forward)
@@ -62,6 +61,7 @@ BLE2902 *pBLE2902_2;                          // Pointer to BLE2902 of Character
 // Some variables to keep track on device connected
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
+Adafruit_NeoPixel pixel(6, 15, NEO_GRB + NEO_KHZ800);
 
 // Variable that will continuously be increased and written to the client
 uint32_t value = 0;
@@ -330,21 +330,20 @@ void processFFT() {
 }
 
 void setup() {
+    // ----- Initialize Neopixel LED -----
+  pixel.begin();
+  // Set the Neopixel to red (indicating device turned on)
+  pixel.setPixelColor(0, pixel.Color(0, 0, 0));
+  pixel.setPixelColor(2, pixel.Color(0, 0, 0));
+  pixel.setPixelColor(5, pixel.Color(0, 0, 0));
+  pixel.show();
   Serial.begin(BAUD_RATE);
-  while (!Serial) {
-    delay(1);
-  }
   pinMode(INPUT_PIN1, INPUT);
   pinMode(INPUT_PIN2, INPUT);
   pinMode(INPUT_PIN3, INPUT);
 
-  pinMode(7, OUTPUT);
-
   initFFT();
-  pinMode(ledPin, OUTPUT);
 
-  // set initial LED state
-  digitalWrite(ledPin, ledState);
   // Create the BLE Device
   BLEDevice::init("ESP32");
 
@@ -395,7 +394,15 @@ void loop() {
   static unsigned long lastMicros = micros();
   unsigned long now = micros(), dt = now - lastMicros;
   lastMicros = now;
-
+  pixel.setPixelColor(0, pixel.Color(255, 255, 0)); // Yellow indicating running
+  // Update NeoPixel based on connection status
+  if (deviceConnected) {
+    pixel.setPixelColor(5, pixel.Color(0, 255, 0)); // Green when connected
+  } else {
+    pixel.setPixelColor(5, pixel.Color(255, 0, 0)); // Red when disconnected
+  }
+  pixel.show();
+  
   static long timer = 0;
   timer -= dt;
   if (timer <= 0) {
@@ -450,6 +457,5 @@ void loop() {
     // do stuff here on connecting
     oldDeviceConnected = deviceConnected;
   }
-  // Save the reading. Next time through the loop, it'll be the lastButtonState:
-  lastButtonState = reading;
+
 }

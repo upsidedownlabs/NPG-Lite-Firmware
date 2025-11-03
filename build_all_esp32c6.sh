@@ -36,8 +36,11 @@ compile_project() {
     echo "   Binary: $output_path/$sketch_name.ino.bin"
   else
     echo "❌ Failed"
-    echo "   See $output_path/compile.log"
-
+    echo "   Compilation log:"
+    echo "   ========================================="
+    cat "$output_path/compile.log"
+    echo "   ========================================="
+    echo "   Full log also saved to: $output_path/compile.log"
   fi
 }
 

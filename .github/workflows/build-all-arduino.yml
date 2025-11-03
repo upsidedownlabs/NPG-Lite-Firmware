@@ -48,7 +48,8 @@ jobs:
         arduino-cli lib install "Adafruit BusIO"
         arduino-cli lib install "Adafruit Unified Sensor"
         arduino-cli lib install "Adafruit MPU6050"
-
+        arduino-cli lib install "WiFiManager"
+        arduino-cli lib install "WebSockets"
 
     - name: 🏗️ Create build directory
       if: steps.check-release.outputs.exists == 'false'
